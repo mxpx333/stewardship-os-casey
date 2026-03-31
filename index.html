@@ -266,26 +266,52 @@ function syncFullBackup() {
 }
 
 // ── Data Layer ──
+function migrateData(data) {
+  data.tasks.forEach(t => {
+    if (t.hidden === undefined) t.hidden = false;
+    if (t.choices === undefined) t.choices = null;
+    if (t.weightTracking === undefined) t.weightTracking = false;
+    if (t.weightUnit === undefined) t.weightUnit = null;
+  });
+  return data;
+}
+
 function loadData() {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (raw) {
     const data = JSON.parse(raw);
-    // Migrate: add new fields to existing tasks
-    data.tasks.forEach(t => {
-      if (t.hidden === undefined) t.hidden = false;
-      if (t.choices === undefined) t.choices = null;
-      if (t.weightTracking === undefined) t.weightTracking = false;
-      if (t.weightUnit === undefined) t.weightUnit = null;
-    });
-    return data;
+    // Only trust localStorage if it has completions (not a fresh/wiped state)
+    if (data.completions && Object.keys(data.completions).length > 0) {
+      return migrateData(data);
+    }
   }
   return { tasks: JSON.parse(JSON.stringify(DEFAULT_TASKS)), completions: {} };
 }
-function saveData(d) { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); }
+function saveData(d) { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); syncFullBackup(); }
 let APP = loadData();
 
-// Full backup on every app load
-syncFullBackup();
+// Auto-restore from Google Sheets if localStorage was empty/wiped
+function tryRestoreFromCloud() {
+  const hasData = Object.keys(APP.completions).length > 0;
+  if (hasData) {
+    // localStorage has real data, just do a backup
+    syncFullBackup();
+    return;
+  }
+  // localStorage is empty — try to restore from cloud
+  fetch(SHEET_URL)
+    .then(r => r.json())
+    .then(data => {
+      if (data && data.tasks && data.completions && Object.keys(data.completions).length > 0) {
+        APP = migrateData(data);
+        saveData(APP);
+        render();
+        console.log('Restored from cloud backup');
+      }
+    })
+    .catch(() => { /* offline or no backup — use defaults */ });
+}
+tryRestoreFromCloud();
 
 // ── View State (not persisted) ──
 let VIEW = { screen: 'today', selectedDate: todayStr(), detailTaskId: null, calMonth: new Date().getMonth(), calYear: new Date().getFullYear(), editTaskId: null };
@@ -1261,6 +1287,7 @@ function showExportImport() {
   panel.innerHTML = `
     <div class="panel-title">Data</div>
     <div class="export-section">
+      <button class="export-btn" onclick="restoreFromCloud()" style="border-color:var(--green);color:var(--green);"><i class="ph ph-cloud-arrow-down"></i> Restore from Cloud</button>
       <button class="export-btn" onclick="exportData()"><i class="ph ph-download-simple"></i> Export Backup</button>
       <button class="export-btn" onclick="importData()"><i class="ph ph-upload-simple"></i> Import Backup</button>
     </div>
@@ -1277,6 +1304,23 @@ function exportData() {
   a.href = URL.createObjectURL(blob);
   a.download = `stewardship-casey-backup-${todayStr()}.json`;
   a.click();
+}
+
+function restoreFromCloud() {
+  fetch(SHEET_URL)
+    .then(r => r.json())
+    .then(data => {
+      if (data && data.tasks && data.completions && Object.keys(data.completions).length > 0) {
+        APP = migrateData(data);
+        saveData(APP);
+        closeInputPanel();
+        render();
+        alert('Restored ' + Object.keys(data.completions).length + ' days of data from cloud.');
+      } else {
+        alert('No cloud backup found.');
+      }
+    })
+    .catch(() => { alert('Could not reach cloud backup. Check your connection.'); });
 }
 
 function importData() {
