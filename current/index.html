@@ -317,7 +317,13 @@ tryRestoreFromCloud();
 let VIEW = { screen: 'today', selectedDate: todayStr(), detailTaskId: null, calMonth: new Date().getMonth(), calYear: new Date().getFullYear(), editTaskId: null };
 
 // ── Utilities ──
-function todayStr() { return new Date().toISOString().slice(0, 10); }
+function todayStr() {
+  // Always use America/Chicago so the date rolls over at midnight Central, not UTC.
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Chicago',
+    year: 'numeric', month: '2-digit', day: '2-digit'
+  }).format(new Date());
+}
 function dateStr(d) { return d.toISOString().slice(0, 10); }
 function parseDate(s) { const [y,m,d] = s.split('-').map(Number); return new Date(y, m-1, d); }
 function addDays(s, n) { const d = parseDate(s); d.setDate(d.getDate() + n); return dateStr(d); }
