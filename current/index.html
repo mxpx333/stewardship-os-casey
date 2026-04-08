@@ -1363,7 +1363,40 @@ document.addEventListener('touchend', () => { if (longPressTimer) { clearTimeout
 document.addEventListener('touchmove', () => { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } });
 
 // ═══ INIT ═══
+// Compute ms until next midnight in America/Chicago, DST-aware.
+function msUntilCentralMidnight() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Chicago', hour12: false,
+    hour: '2-digit', minute: '2-digit', second: '2-digit'
+  }).formatToParts(new Date());
+  const get = t => Number(parts.find(p => p.type === t).value);
+  let h = get('hour'); if (h === 24) h = 0; // some engines emit 24 at midnight
+  const secsToday = h * 3600 + get('minute') * 60 + get('second');
+  return ((24 * 3600) - secsToday) * 1000 + 1000; // +1s buffer past midnight
+}
+
+// At Central midnight, snap selectedDate to the new "today" and re-render.
+function scheduleMidnightRefresh() {
+  setTimeout(() => {
+    if (VIEW.screen === 'today') VIEW.selectedDate = todayStr();
+    render();
+    scheduleMidnightRefresh();
+  }, msUntilCentralMidnight());
+}
+
+// If the app was backgrounded across midnight (home screen PWA), catch up on resume.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && VIEW.screen === 'today') {
+    const t = todayStr();
+    if (VIEW.selectedDate !== t) {
+      VIEW.selectedDate = t;
+      render();
+    }
+  }
+});
+
 render();
+scheduleMidnightRefresh();
 </script>
 </body>
 </html>
